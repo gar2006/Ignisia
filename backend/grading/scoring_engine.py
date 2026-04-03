@@ -1,9 +1,10 @@
 from grading.regex_parser import extract_math_expressions
 from grading.math_validator import validate_equation
-from grading.keyword_matcher import keyword_score
 from collections import Counter
 import re
 import time
+from difflib import SequenceMatcher
+
 
 def highlight_keywords(text, keywords):
     for kw in keywords:
@@ -18,105 +19,106 @@ def grade_cluster(cluster_payload):
     rubric = cluster_payload["rubric"]
 
     for ans in cluster_payload["answers"]:
-        student_text = ans["raw_text"].strip()
+        student_text = ans["raw_text"].strip().replace("\n", " ")
 
-        # Normalize multiline OCR
-        student_text = student_text.replace("\n", " ")
-
-        # 🚨 Empty / garbage detection
+        # -----------------------------
+        # EMPTY CHECK
+        # -----------------------------
         if not student_text or not re.search(r'[a-zA-Z]', student_text):
             results.append({
                 "student_id": ans["student_id"],
                 "score": 0,
-                "math_correct": False,
-                "keyword_score": 0,
                 "confidence": 0,
-                "partial_credit_math_error": False,
-                "highlighted_text": student_text,
                 "feedback": ["Invalid or empty answer"]
             })
             continue
 
-        # Keyword scoring
-        kw_score = keyword_score(student_text, rubric["keywords"])
-        optional_score = keyword_score(
-            student_text,
-            rubric.get("optional_keywords", [])
-        )
+        q_type = rubric.get("type", "theory")
 
-        # Highlight text for frontend
-        highlighted_text = highlight_keywords(student_text, rubric["keywords"])
+        # =====================================================
+        # 🔵 THEORY MODE (CONCEPT-BASED)
+        # =====================================================
+        if q_type == "theory":
+            required = rubric.get("required_elements", [])
+            concept_hits = 0
 
-        # Extract math
-        student_math = extract_math_expressions(student_text)
+            for concept in required:
+                words = concept.lower().split()
 
-        # Support multiple correct equations
-        correct_equations = rubric.get("equation")
-        if isinstance(correct_equations, str):
-            correct_equations = [correct_equations]
+                matches = sum(1 for w in words if w in student_text.lower())
 
-        formula_match = False
-        math_correct = False
-        partial_credit_math_error = False
+                if matches >= max(1, len(words) // 2):
+                    concept_hits += 1
 
-        if correct_equations and student_math:
-            formula_match = any(
-                validate_equation(expr, eq)
-                for eq in correct_equations
-                for expr in student_math
-            )
+            final_score = concept_hits / len(required) if required else 0
 
-            math_correct = formula_match  # currently symbolic match
 
-            # 🔥 Step 3.3 HARD FLAGGING
-            if formula_match and not math_correct:
-                partial_credit_math_error = True
+        # =====================================================
+        # 🔴 MATH MODE
+        # =====================================================
+        elif q_type == "math":
+            student_math = extract_math_expressions(student_text)
+            correct_eq = rubric.get("equation")
 
-        # Final score
-        final_score = min(1.0, (
-            kw_score * rubric["keyword_weight"] +
-            optional_score * 0.2 +
-            (1 if math_correct else 0) * rubric["math_weight"]
-        ))
+            math_correct = False
 
-        # Feedback
-        feedback = set()
+            if student_math:
+                math_correct = any(
+                    validate_equation(expr, correct_eq)
+                    for expr in student_math
+                )
 
-        missing_keywords = [
-            kw for kw in rubric["keywords"]
-            if kw.lower() not in student_text.lower()
-        ]
+            if math_correct:
+                final_score = 1.0
+            elif student_math:
+                final_score = 0.5
+            else:
+                final_score = 0.0
 
-        if missing_keywords:
-            feedback.add(f"Missing keywords: {', '.join(missing_keywords)}")
 
-        if math_correct and kw_score < 0.5:
-            feedback.add("Correct formula but missing explanation")
+        # =====================================================
+        # 🟢 LANGUAGE MODE
+        # =====================================================
+        elif q_type == "language":
+            similarity = SequenceMatcher(
+                None,
+                student_text.lower(),
+                rubric.get("model_answer", "").lower()
+            ).ratio()
 
-        if correct_equations and not math_correct:
-            feedback.add("Incorrect or missing formula")
+            final_score = similarity
 
-        if partial_credit_math_error:
-            feedback.add("Correct formula but calculation error")
 
-        if not feedback:
-            feedback.add("Perfect answer")
+        else:
+            final_score = 0
 
-        # Confidence
-        confidence = round((kw_score + (1 if math_correct else 0)) / 2, 2)
+
+        # -----------------------------
+        # FEEDBACK (CLEAN + STRONG)
+        # -----------------------------
+        feedback = []
+
+        if final_score >= 0.8:
+            feedback.append("Excellent answer")
+        elif final_score >= 0.6:
+            feedback.append("Good answer")
+        elif final_score >= 0.3:
+            feedback.append("Partially correct answer")
+        else:
+            feedback.append("Needs improvement")
+
+        confidence = round(final_score, 2)
 
         results.append({
             "student_id": ans["student_id"],
             "score": round(final_score, 2),
-            "math_correct": math_correct,
-            "keyword_score": round(kw_score, 2),
             "confidence": confidence,
-            "partial_credit_math_error": partial_credit_math_error,
-            "highlighted_text": highlighted_text,
-            "feedback": list(feedback)
+            "feedback": feedback
         })
 
-    # Safe analytics
+    # -----------------------------
+    # CLUSTER ANALYTICS
+    # -----------------------------
     if not results:
         return {
             "cluster_id": cluster_payload["cluster_id"],
@@ -129,7 +131,6 @@ def grade_cluster(cluster_payload):
 
     avg_score = sum(r["score"] for r in results) / len(results)
 
-    # Aggregate feedback
     all_feedback = []
     for r in results:
         all_feedback.extend(r["feedback"])
