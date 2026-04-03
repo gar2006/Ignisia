@@ -22,3 +22,27 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Python cache
+__pycache__/
+*.pyc
+
+# macOS
+.DS_Store
+
+# Environment and local virtualenvs
+.env
+.venv/
+venv/
+env/
+
+# Generated OCR outputs
+ocr_output/
+
+# Generated clustering/grading outputs
+final_clustered_grades.csv
+final_clustered_grades.json
+output.json
+
+# Logs
+logs/
