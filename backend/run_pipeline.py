@@ -2,33 +2,26 @@ from csv_loader import load_csv, load_teacher_answers
 from cluster_processor import group_by_cluster
 from grading.scoring_engine import grade_cluster
 from rubric_generator import generate_rubric
-from difflib import get_close_matches
 import json
 import os
 
-# Load student data
-data = load_csv("final_clustered_grades.csv")
+data = load_csv("final_clustered_grades (1).csv")
+teacher_answers = load_teacher_answers("Answer_Key_Q1_Q2.csv")
 
-# Load teacher answers
-teacher_answers = load_teacher_answers("Model_Answer_Momentum.csv")
-
-# Group clusters
 clusters = group_by_cluster(data)
 
 final_output = []
 
-# All teacher questions
-teacher_questions = list(teacher_answers.keys())
-
 for cluster_id, answers in clusters.items():
 
-    # Get first question
-    question = list(teacher_answers.keys())[0]
+    # 🔥 use question_id instead of question text
+    qid = answers[0].get("question_id", "Q1")
 
-    teacher_data = teacher_answers[question]
+    teacher_data = teacher_answers.get(qid, {})
 
     rubric = generate_rubric(teacher_data)
 
+    print("\nCLUSTER:", cluster_id, "| QUESTION:", qid)
     print("RUBRIC:", rubric)
 
     cluster_payload = {
@@ -40,10 +33,10 @@ for cluster_id, answers in clusters.items():
     result = grade_cluster(cluster_payload)
     final_output.append(result)
 
-# Save output
+# save
 output_path = os.path.join(os.path.dirname(__file__), "output.json")
 
 with open(output_path, "w") as f:
     json.dump(final_output, f, indent=2)
 
-print("✅ Output file updated at:", output_path)
+print("\n✅ Output saved at:", output_path)
