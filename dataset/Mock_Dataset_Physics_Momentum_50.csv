@@ -1,0 +1,51 @@
+ID,Student Answer,Category
+1,Momentum is conserved because there are no external forces.,Exact Match
+2,Momentum is conserved because there are no external forces.,Exact Match
+3,Momentum is conserved because there are no external forces.,Exact Match
+4,Momentum is conserved because there are no external forces.,Exact Match
+5,Momentum is conserved because there are no external forces.,Exact Match
+6,"Due to the absence of outside force, the total momentum remains constant.",Phrasing Variation
+7,"In an isolated system where net force is zero, momentum does not change.",Phrasing Variation
+8,Total momentum stays the same since no external impulse is applied.,Phrasing Variation
+9,The momentum of the objects is constant because external force is zero.,Phrasing Variation
+10,"Since there's no resultant external force acting, momentum is preserved.",Phrasing Variation
+11,"External force zero hai, isliye momentum conserve rahega.",Hinglish/Hindi
+12,"System pe koi bahar se force nahi lag raha, toh momentum constant hai.",Hinglish/Hindi
+13,"Agar external force absent ho, toh total momentum badalta nahi hai.",Hinglish/Hindi
+14,Momentum is conserved.,Partially Correct
+15,Because there are no external forces acting on the bodies.,Partially Correct
+16,The total momentum remains constant in the system.,Partially Correct
+17,Momentum constant rehta hai.,Partially Correct
+18,Gravity pulls it down.,Wrong
+19,Kinetic energy is always conserved in all collisions.,Wrong
+20,Acceleration is proportional to the force applied.,Wrong
+21,Momentum is conserved because there are no external forces.,Exact Match
+22,Momentum is conserved because there are no external forces.,Exact Match
+23,Momentum is conserved because there are no external forces.,Exact Match
+24,Momentum is conserved because there are no external forces.,Exact Match
+25,Momentum is conserved because there are no external forces.,Exact Match
+26,"When no external force acts on the system, the total momentum is conserved.",Phrasing Variation
+27,The net momentum of the system stays unchanged in the absence of external forces.,Phrasing Variation
+28,"As no outside force influences the system, the combined momentum does not vary.",Phrasing Variation
+29,Momentum is maintained constant because the net external force on the system is nil.,Phrasing Variation
+30,"Without any external force acting, the system's momentum remains the same throughout.",Phrasing Variation
+31,"Koi external force nahi hai is system mein, isliye momentum same rehega.",Hinglish/Hindi
+32,"Total momentum change nahi hoga kyunki baaki forces zero hain.",Hinglish/Hindi
+33,"External forces nahi hain, toh conservation of momentum apply hoga.",Hinglish/Hindi
+34,There are no external forces present in the system.,Partially Correct
+35,The total momentum of the system does not change.,Partially Correct
+36,Momentum stays the same during the collision.,Partially Correct
+37,The objects have equal and opposite momenta.,Partially Correct
+38,The velocity of the object increases due to gravity.,Wrong
+39,The force applied equals the mass times velocity.,Wrong
+40,Energy is neither created nor destroyed in the collision.,Wrong
+41,Momentum is conserved because there are no external forces.,Exact Match
+42,Momentum is conserved because there are no external forces.,Exact Match
+43,Momentum is conserved because there are no external forces.,Exact Match
+44,Momentum is conserved because there are no external forces.,Exact Match
+45,Momentum is conserved because there are no external forces.,Exact Match
+46,"Due to absence of any external force, momentum of the entire system is conserved.",Phrasing Variation
+47,"Since external force is absent, the total momentum of the system remains constant.",Phrasing Variation
+48,"The system being isolated means no external force acts, so momentum is conserved.",Phrasing Variation
+49,Momentum stays the same because no net force from outside acts on the system.,Phrasing Variation
+50,"When the system is closed and external forces are zero, momentum is always conserved.",Phrasing Variation
