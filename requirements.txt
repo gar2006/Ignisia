@@ -10,3 +10,6 @@ Pillow
 python-dotenv
 tqdm
 google-cloud-vision
+streamlit
+PyMuPDF
+reportlab
