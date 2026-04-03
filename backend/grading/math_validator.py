@@ -5,9 +5,8 @@ from sympy.parsing.sympy_parser import (
 )
 from sympy import simplify
 import re
-import random
 
-# Enable implicit multiplication
+# Enable implicit multiplication (2m → 2*m, mv → m*v)
 transformations = standard_transformations + (implicit_multiplication_application,)
 
 
@@ -28,8 +27,8 @@ def normalize_expression(expr):
     expr = expr.replace("velocity", "v")
     expr = expr.replace("energy", "e")
 
-    # Remove units
-    expr = re.sub(r'(m/s|kg|n|j|cm|m)', '', expr)
+    # 🚨 IMPORTANT: remove units WITHOUT removing variables
+    expr = re.sub(r'(m/s|kg|n|j|cm)', '', expr)
 
     # Take RHS if equation
     if "=" in expr:
@@ -38,42 +37,23 @@ def normalize_expression(expr):
     return expr.strip()
 
 
-def numeric_check(expr1, expr2, variables):
-    for _ in range(3):
-        subs = {var: random.randint(1, 10) for var in variables}
-        try:
-            val1 = expr1.evalf(subs=subs)
-            val2 = expr2.evalf(subs=subs)
-            if abs(val1 - val2) > 1e-6:
-                return False
-        except:
-            return False
-    return True
-
-
 def validate_equation(student_expr, correct_expr):
     try:
+        if not student_expr:
+            return False
+
         student_expr = normalize_expression(student_expr)
         correct_expr = normalize_expression(correct_expr)
 
-        # Extract variables
-        vars_student = set(re.findall(r'[a-zA-Z]+', student_expr))
-        vars_correct = set(re.findall(r'[a-zA-Z]+', correct_expr))
-        all_vars = vars_student.union(vars_correct)
+        # 🔥 NO local_dict, NO symbols → let sympy handle it
+        student = simplify(parse_expr(student_expr, transformations=transformations))
+        correct = simplify(parse_expr(correct_expr, transformations=transformations))
 
-        # Create symbols
-        local_dict = {var: parse_expr(var) for var in all_vars}
+        return simplify(student - correct) == 0
 
-        # Parse expressions
-        student = simplify(parse_expr(student_expr, local_dict=local_dict, transformations=transformations))
-        correct = simplify(parse_expr(correct_expr, local_dict=local_dict, transformations=transformations))
-
-        # Symbolic check
-        if simplify(student - correct) == 0:
-            return True
-
-        # Numeric fallback
-        return numeric_check(student, correct, all_vars)
+    except Exception as e:
+        print("Math error:", e)
+        return False
 
     except Exception as e:
         print("Math error:", e)
