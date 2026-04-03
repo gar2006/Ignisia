@@ -1,157 +1,279 @@
+
 """
-FAST HYBRID OCR PIPELINE (PARALLEL + SMART OCR)
+HACKATHON-SAFE FAST OCR PIPELINE
+Fast, stable, and much more practical than running TrOCR on every line.
+
+Key changes:
+- preload EasyOCR once
+- no TrOCR by default
+- Tesseract first
+- EasyOCR only for low-confidence lines
+- progress bar updates per page
+- safer on Mac/MPS by forcing CPU for EasyOCR
 """
 
+import json
+import pandas as pd
+from pathlib import Path
 import os
 import cv2
 import numpy as np
 import pytesseract
 import zipfile
-import json
 import argparse
 import re
-from pathlib import Path
 from PIL import Image
 from io import BytesIO
 from tqdm import tqdm
 from collections import defaultdict
-from concurrent.futures import ThreadPoolExecutor, as_completed
-import threading
+import warnings
+
+os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
+
+warnings.filterwarnings("ignore", category=UserWarning, module="torch")
+warnings.filterwarnings(
+    "ignore",
+    message=".*pin_memory.*not supported on MPS.*"
+)
+
+
 import easyocr
 
-# --- CONFIG ---
-PSM = 4
 CONF_THRESH = 55
-OUTPUT_DIR = Path("ocr_output")
-MAX_WORKERS = 6  # adjust based on CPU
+TESS_PSMS = [6, 11]
 
 reader = None
-reader_lock = threading.Lock()
 
-# --- INIT EASYOCR SAFELY ---
+
 def get_reader():
     global reader
     if reader is None:
-        with reader_lock:
-            if reader is None:
-                print("🔄 Initializing EasyOCR (one-time)...")
-                reader = easyocr.Reader(['en'], gpu=False)
+        print("Loading EasyOCR once...")
+        reader = easyocr.Reader(["en"], gpu=False)
     return reader
 
-# --- PARSE FILENAMES ---
+
 def parse_filenames(names):
     patterns = [
-        r"^(\w+)[_\-]sheet(\d+)\.png",
-        r".*?[_\-\s]?(\w+)[_\-\s]p(\d+)\.png",
-        r".*?[_\-\s](\w+)[_\-\s]page(\d+)\.png",
-        r"^(\w+)[_\-](\d)\.png",
-        r".*?(\d+)pg(\d+)\.png",
-        r"^(\d+)-(\d+)\.png",
+        r"^(\w+)[_\-]sheet(\d+)\.(png|jpg|jpeg)$",
+        r".*?[_\-\s]?(\w+)[_\-\s]p(\d+)\.(png|jpg|jpeg)$",
+        r".*?[_\-\s](\w+)[_\-\s]page(\d+)\.(png|jpg|jpeg)$",
+        r"^(\w+)[_\-](\d+)\.(png|jpg|jpeg)$",
+        r".*?(\d+)pg(\d+)\.(png|jpg|jpeg)$",
+        r"^(\d+)-(\d+)\.(png|jpg|jpeg)$",
     ]
     grouped = defaultdict(dict)
 
     for name in names:
-        if not name.lower().endswith(".png"):
+        base = Path(name).name
+        low = base.lower()
+        if not low.endswith((".png", ".jpg", ".jpeg")):
             continue
-        basename = Path(name).name
 
         for pat in patterns:
-            m = re.match(pat, basename, re.IGNORECASE)
+            m = re.match(pat, base, re.IGNORECASE)
             if m:
                 grouped[m.group(1)][int(m.group(2))] = name
                 break
 
     return dict(grouped)
 
-# --- PREPROCESS ---
-def preprocess(pil_img):
-    img = np.array(pil_img.convert("L"))
 
-    # upscale
-    img = cv2.resize(img, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
+def clean_text(text):
+    text = text.replace("\x0c", " ")
+    text = re.sub(r"\s+", " ", text).strip()
+    text = re.sub(r"[|\\/_]{2,}", " ", text)
+    text = re.sub(r"([A-Za-z])\1{3,}", r"\1", text)
+    return text.strip()
 
-    # fast threshold
-    _, binary = cv2.threshold(img, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
 
-    return binary
+def preprocess_gray(pil_img):
+    gray = np.array(pil_img.convert("L"))
+    gray = cv2.resize(gray, None, fx=2.0, fy=2.0, interpolation=cv2.INTER_CUBIC)
+    gray = cv2.GaussianBlur(gray, (3, 3), 0)
+    return gray
 
-# --- TESSERACT ---
+
+def make_binary_variants(gray):
+    _, otsu = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    adaptive = cv2.adaptiveThreshold(
+        gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 31, 15
+    )
+    return [otsu, adaptive]
+
+
+def segment_lines(bin_img):
+    gray = bin_img.copy()
+
+    if np.mean(gray) > 127:
+        work = 255 - gray
+    else:
+        work = gray
+
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (50, 3))
+    dilated = cv2.dilate(work, kernel, iterations=1)
+
+    contours, _ = cv2.findContours(dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    h, w = gray.shape[:2]
+    boxes = []
+    for c in contours:
+        x, y, bw, bh = cv2.boundingRect(c)
+
+        if bw < w * 0.15:
+            continue
+        if bh < 12:
+            continue
+        if bw * bh < 500:
+            continue
+
+        boxes.append((x, y, bw, bh))
+
+    boxes.sort(key=lambda b: b[1])
+
+    lines = []
+    for x, y, bw, bh in boxes:
+        pad = 6
+        y1 = max(0, y - pad)
+        y2 = min(h, y + bh + pad)
+        x1 = max(0, x - pad)
+        x2 = min(w, x + bw + pad)
+
+        crop = gray[y1:y2, x1:x2]
+        if crop.size == 0:
+            continue
+
+        ch, cw = crop.shape[:2]
+        if ch < 10 or cw < 20:
+            continue
+
+        lines.append(crop)
+
+    if not lines:
+        lines = [gray]
+
+    return lines
+
+
 def tesseract_ocr(img, psm):
+    if img is None or img.size == 0:
+        return {"text": "", "confidence": 0}
+
+    h, w = img.shape[:2]
+    if h < 10 or w < 20:
+        return {"text": "", "confidence": 0}
+
     pil = Image.fromarray(img)
 
-    data = pytesseract.image_to_data(
-        pil,
-        config=f"--oem 3 --psm {psm}",
-        output_type=pytesseract.Output.DICT
-    )
+    try:
+        data = pytesseract.image_to_data(
+            pil,
+            config=f"--oem 3 --psm {psm}",
+            output_type=pytesseract.Output.DICT,
+            timeout=8
+        )
+    except RuntimeError:
+        return {"text": "", "confidence": 0}
+    except Exception:
+        return {"text": "", "confidence": 0}
 
     words, confs = [], []
     for w, c in zip(data["text"], data["conf"]):
-        c = int(c)
+        try:
+            c = float(c)
+        except:
+            c = -1
         if w.strip() and c > 40:
             words.append(w)
             confs.append(c)
 
-    return {
-        "text": " ".join(words),
-        "confidence": sum(confs)/len(confs) if confs else 0
-    }
+    text = clean_text(" ".join(words))
+    conf = sum(confs) / len(confs) if confs else 0
+    return {"text": text, "confidence": conf}
 
-# --- EASYOCR ---
+
+def best_tesseract(img):
+    results = [tesseract_ocr(img, psm) for psm in TESS_PSMS]
+    results.sort(key=lambda x: x["confidence"], reverse=True)
+    return results[0]
+
+
 def easyocr_ocr(img):
     reader = get_reader()
-    results = reader.readtext(img)
+    results = reader.readtext(img, detail=1, paragraph=False)
 
     words, confs = [], []
-    for _, text, conf in results:
-        words.append(text)
-        confs.append(conf * 100)
+    for item in results:
+        if len(item) == 3:
+            _, text, conf = item
+            if text.strip():
+                words.append(text)
+                confs.append(conf * 100)
 
-    return {
-        "text": " ".join(words),
-        "confidence": sum(confs)/len(confs) if confs else 0
-    }
+    text = clean_text(" ".join(words))
+    conf = sum(confs) / len(confs) if confs else 0
+    return {"text": text, "confidence": conf}
 
-# --- SMART HYBRID ---
-def hybrid_ocr(img):
-    t1 = tesseract_ocr(img, 4)
-    t2 = tesseract_ocr(img, 6)
 
-    best_t = t1 if t1["confidence"] > t2["confidence"] else t2
+def recognize_line(line_img):
+    try:
+        tess = best_tesseract(line_img)
+    except Exception:
+        tess = {"text": "", "confidence": 0}
 
-    # 🔥 ONLY fallback if really bad
-    if best_t["confidence"] > 60:
-        return best_t
+    if tess["confidence"] >= 72 and len(tess["text"]) > 3:
+        return tess
 
-    e = easyocr_ocr(img)
-    return e if e["confidence"] > best_t["confidence"] else best_t
+    try:
+        easy = easyocr_ocr(line_img)
+    except Exception:
+        easy = {"text": "", "confidence": 0}
 
-# --- PROCESS ONE STUDENT ---
-def process_student(student_id, pages, read_file):
-    page_results = {}
+    if easy["confidence"] > tess["confidence"] + 4 and len(easy["text"]) >= max(3, len(tess["text"]) // 2):
+        return easy
 
-    for p in sorted(pages):
-        img = Image.open(BytesIO(read_file(pages[p])))
-        clean = preprocess(img)
-        page_results[p] = hybrid_ocr(clean)
+    return tess if tess["text"] else easy
 
-    full_text = " ".join(page_results[p]["text"] for p in page_results)
-    confs = [page_results[p]["confidence"] for p in page_results if page_results[p]["confidence"] > 0]
-    avg_conf = sum(confs)/len(confs) if confs else 0
 
-    return {
-        "student_id": student_id,
-        "full_text": full_text,
-        "avg_confidence": round(avg_conf,1),
-        "flagged": avg_conf < CONF_THRESH
-    }
 
-# --- MAIN ---
+def process_page(pil_img):
+    gray = preprocess_gray(pil_img)
+    variants = make_binary_variants(gray)
+
+    best_page = {"text": "", "confidence": 0}
+
+    for variant in variants:
+        lines = segment_lines(variant)
+
+        line_texts = []
+        line_scores = []
+
+        for line in lines:
+            result = recognize_line(line)
+            if result["text"]:
+                line_texts.append(result["text"])
+            if result["confidence"] > 0:
+                line_scores.append(result["confidence"])
+
+        page_text = clean_text(" ".join(line_texts))
+        page_conf = sum(line_scores) / len(line_scores) if line_scores else 0
+
+        if page_conf > best_page["confidence"]:
+            best_page = {"text": page_text, "confidence": page_conf}
+
+    return best_page
+
+
 def run_pipeline(source):
-    print("🚀 FAST OCR PIPELINE\n")
+    print("FAST HACKATHON OCR PIPELINE\n")
+
+    get_reader()
 
     if os.path.isdir(source):
-        all_names = [str(p) for p in Path(source).rglob("*.png")]
+        all_names = [
+            str(p) for p in Path(source).rglob("*")
+            if p.suffix.lower() in {".png", ".jpg", ".jpeg"}
+        ]
         read_file = lambda x: open(x, "rb").read()
     else:
         zf = zipfile.ZipFile(source)
@@ -160,36 +282,66 @@ def run_pipeline(source):
 
     grouped = parse_filenames(all_names)
 
+    page_jobs = []
+    for sid, pages in grouped.items():
+        for page_num, page_path in sorted(pages.items()):
+            page_jobs.append((sid, page_num, page_path))
+
+    page_outputs = defaultdict(dict)
+
+    for sid, page_num, page_path in tqdm(page_jobs, desc="OCR pages"):
+        img = Image.open(BytesIO(read_file(page_path)))
+        page_outputs[sid][page_num] = process_page(img)
+
     results = []
     flagged = 0
 
-    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-        futures = [
-            executor.submit(process_student, sid, pages, read_file)
-            for sid, pages in grouped.items()
-        ]
+    for sid in sorted(page_outputs):
+        ordered = page_outputs[sid]
+        full_text = " ".join(ordered[p]["text"] for p in sorted(ordered))
+        confs = [ordered[p]["confidence"] for p in sorted(ordered) if ordered[p]["confidence"] > 0]
+        avg_conf = sum(confs) / len(confs) if confs else 0
 
-        for f in tqdm(as_completed(futures), total=len(futures)):
-            res = f.result()
-            results.append(res)
-            if res["flagged"]:
-                flagged += 1
+        row = {
+            "student_id": sid,
+            "full_text": clean_text(full_text),
+            "avg_confidence": round(avg_conf, 1),
+            "flagged": avg_conf < CONF_THRESH
+        }
+        results.append(row)
+        if row["flagged"]:
+            flagged += 1
 
-    avg = sum(r["avg_confidence"] for r in results)/len(results)
+    avg = sum(r["avg_confidence"] for r in results) / len(results) if results else 0
 
-    print("\n" + "─"*40)
-    print(f"Avg confidence: {round(avg,1)}")
+    print("\n" + "-" * 40)
+    print(f"Avg confidence: {round(avg, 1)}")
     print(f"Flagged: {flagged}")
-    print("─"*40)
+    print("-" * 40)
 
-# --- ENTRY ---
+    output_dir = Path("ocr_output")
+    output_dir.mkdir(exist_ok=True)
+
+    with open(output_dir / "results.json", "w", encoding="utf-8") as f:
+        json.dump(results, f, indent=2, ensure_ascii=False)
+
+    pd.DataFrame(results).to_csv(output_dir / "results.csv", index=False)
+
+    print(f"Saved JSON: {output_dir / 'results.json'}")
+    print(f"Saved CSV: {output_dir / 'results.csv'}")
+
+    return results
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--folder")
-    parser.add_argument("--zip")
+    parser.add_argument("--folder", type=str, default=None)
+    parser.add_argument("--zip", type=str, default=None)
     args = parser.parse_args()
 
     if args.folder:
         run_pipeline(args.folder)
     elif args.zip:
         run_pipeline(args.zip)
+    else:
+        print("Please provide --folder or --zip")
