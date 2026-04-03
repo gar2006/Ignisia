@@ -2,6 +2,7 @@ import json
 import pandas as pd
 from sentence_transformers import SentenceTransformer
 import hdbscan
+import re
 
 print("--- Loading JSON OCR Data ---")
  
@@ -18,10 +19,22 @@ print(f"Total students loaded: {len(df)}")
 print(f"Clean answers ready for ML clustering: {len(clean_df)}")
 print(f"Bad handwriting flagged for manual review: {len(bad_scans_df)}\n")
 
-print(df.head())
+print(clean_df)
 print("\n")
 
- 
+clean_df.to_csv('ocr_output/clean_data.csv', index=False)
+
+def extract_q1(text):
+    # This looks for Q1/Que 1/Ans 1, and grabs everything until it sees Q2
+    match = re.search(r'(?:Q1|Que 1|Ans 1).*?(?=Q2|Que 2|Ans 2|$)', text, re.IGNORECASE | re.DOTALL)
+    if match:
+        return match.group(0).strip()
+    return text
+# Make a new column containing ONLY the answers to Question 1
+clean_df['Q1_Answer'] = clean_df['full_text'].apply(extract_q1)
+
+
+
 print("--- Loading the SentenceTransformer Model ---")
 model = SentenceTransformer('paraphrase-multilingual-mpnet-base-v2')
 print("Model Ready!\n")
