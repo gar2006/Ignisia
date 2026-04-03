@@ -4,6 +4,7 @@ def group_by_cluster(data):
     clusters = defaultdict(list)
 
     for row in data:
-        clusters[row["cluster_id"]].append(row)
+        cluster_key = (row["question_id"], row["cluster_id"])
+        clusters[cluster_key].append(row)
 
     return clusters

@@ -27,6 +27,8 @@ def load_csv(filepath):
             })
 
     return data
+
+
 def load_teacher_answers(filepath):
     import csv
 
@@ -39,6 +41,7 @@ def load_teacher_answers(filepath):
             qid = row["Question_ID"]
 
             rubric_map[qid] = {
+                "question": row.get("Question", ""),
                 "model_answer": row["Model_Answer"],
                 "required": row["Required_Elements"]
             }

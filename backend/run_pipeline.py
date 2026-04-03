@@ -10,12 +10,12 @@ teacher_answers = load_teacher_answers("Answer_Key_Q1_Q2.csv")
 
 clusters = group_by_cluster(data)
 
-final_output = []
+final_output = {
+    "Q1": [],
+    "Q2": []
+}
 
-for cluster_id, answers in clusters.items():
-
-    # 🔥 use question_id instead of question text
-    qid = answers[0].get("question_id", "Q1")
+for (qid, cluster_id), answers in clusters.items():
 
     teacher_data = teacher_answers.get(qid, {})
 
@@ -26,12 +26,16 @@ for cluster_id, answers in clusters.items():
 
     cluster_payload = {
         "cluster_id": cluster_id,
+        "question_id": qid,
         "answers": answers,
         "rubric": rubric
     }
 
     result = grade_cluster(cluster_payload)
-    final_output.append(result)
+    final_output.setdefault(qid, []).append(result)
+
+for qid in final_output:
+    final_output[qid].sort(key=lambda item: item["cluster_id"])
 
 # save
 output_path = os.path.join(os.path.dirname(__file__), "output.json")
