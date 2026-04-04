@@ -55,17 +55,18 @@ Ignisia-main/
 │   │   └── regex_parser.py
 │   └── README.md
 └── uploads/
-How It Works
-1. OCR
+
+##How It Works
+###1. OCR
 Uploaded answer sheets are processed using OCR to extract student responses. The OCR pipeline supports flexible file grouping and can work with folder-based datasets, ZIP files, PDFs, or individual image uploads.
 
-2. Answer Extraction
+###2. Answer Extraction
 The backend reads the uploaded answer key and uses the detected question structure to extract answer text question-wise from each student sheet.
 
-3. Semantic Clustering
+###3. Semantic Clustering
 For each question, answers are embedded using a multilingual sentence-transformer model and grouped into clusters based on semantic similarity. This allows answers written in different wording, and in some cases different languages, to be grouped together if they convey similar meaning.
 
-4. Rubric-Based Grading
+###4. Rubric-Based Grading
 Each cluster is compared against answer-key variations and rubric requirements. The system generates:
 
 suggested marks
@@ -75,7 +76,7 @@ matched and missing concept indicators
 5. Teacher Review
 Teachers can inspect clusters, view answer-sheet images, review low-confidence clusters, override marks and reasons, and focus on outlier groups that need human attention.
 
-6. Student Feedback Generation
+###6. Student Feedback Generation
 After review, Ignisia can generate personalized tutoring feedback for students, including:
 
 short explanatory feedback
@@ -97,7 +98,6 @@ The Streamlit app provides three main pages:
 
 Home
 Used to upload:
-
 answer key
 optional manifest
 answer sheets as a single file or multiple images
