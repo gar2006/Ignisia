@@ -1,5 +1,7 @@
 # Ignisia Grading Model
 
+http://localhost:8501/
+
 Ignisia Grading Model is an AI-assisted answer sheet evaluation platform designed to reduce the manual effort involved in checking large volumes of student responses while still keeping teachers in control of the final assessment process. The system accepts uploaded answer sheets in image, PDF, or ZIP form, performs OCR to extract student responses, and organizes answers into semantic clusters so that similar responses can be reviewed together instead of one by one. These clusters are then compared against an uploaded answer key using rubric-based evaluation, semantic similarity scoring, and concept-level matching to suggest marks, reasons, and confidence levels for each answer group.
 
 The platform is built for practical classroom workflows rather than fully opaque automation. Teachers can inspect cluster-level outputs, review student answer scripts, override suggested marks where needed, and identify low-confidence or unusual responses through dedicated outlier views. Ignisia also supports multilingual evaluation, allowing semantically similar answers written in English and regional languages to be grouped together where appropriate. In addition, the platform can generate personalized tutoring feedback for students, including concept-specific explanations, practice questions, and export-ready output formats.
